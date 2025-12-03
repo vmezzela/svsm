@@ -15,6 +15,7 @@ use bootlib::kernel_launch::{
 };
 use bootlib::platform::SvsmPlatformType;
 use core::arch::asm;
+use core::arch::x86_64::_rdrand64_step;
 use core::panic::PanicInfo;
 use core::slice;
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -341,6 +342,17 @@ unsafe fn load_elf_segment(
     Ok(segment_region)
 }
 
+fn get_kaslr_offset(max_size: u64) -> Option<u64> {
+    for _ in 0..10 {
+        let mut rand: u64 = 0;
+
+        if unsafe { _rdrand64_step(&mut rand) } == 1 {
+            return Some(rand % max_size);
+        }
+    }
+    None
+}
+
 /// Adjust the virtual region so that its end address becomes 2 MiB-aligned relative to the
 /// physical region's end address.
 fn advance_memory_region_for_2m_alignment(
@@ -384,8 +396,18 @@ fn load_kernel_elf(
         - elf_alignment_padding
         - heap_alignment_padding;
 
-    let vaddr_alloc_base = SVSM_GLOBAL_BASE.as_usize() as u64;
+    let kaslr_max_size = upper_bound - SVSM_GLOBAL_BASE.as_usize();
+    let kaslr_offset = match get_kaslr_offset(kaslr_max_size as u64) {
+        Some(kaslr_offset) => kaslr_offset,
+        None => {
+            log::error!("Error retrieving kaslr");
+            0
+        }
+    };
+
+    let vaddr_alloc_base = SVSM_GLOBAL_BASE.as_usize() as u64 + kaslr_offset;
     assert!(vaddr_alloc_base < upper_bound.try_into().unwrap());
+    assert!(vaddr_alloc_base >= SVSM_GLOBAL_BASE.as_usize().try_into().unwrap());
 
     // Map, validate and populate the SVSM kernel ELF's PT_LOAD segments. The
     // segments' virtual address range might not necessarily be contiguous,
