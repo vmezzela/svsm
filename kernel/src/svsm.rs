@@ -10,7 +10,7 @@
 extern crate alloc;
 
 use bootlib::kernel_launch::KernelLaunchInfo;
-use core::arch::global_asm;
+use core::arch::{global_asm, asm};
 use core::panic::PanicInfo;
 use core::slice;
 use cpuarch::snp_cpuid::SnpCpuidTable;
@@ -323,6 +323,22 @@ extern "C" fn svsm_entry(li: &KernelLaunchInfo, vb_addr: usize) -> ! {
     unreachable!("SVSM entry point terminated unexpectedly");
 }
 
+fn print_rip() {
+    // Print the rip to see the kernel is actually running at a random offset.
+
+    let rip: u64;
+    unsafe {
+        // call 5f pushes the address of the next instruction (RIP) on the stack
+        asm!(
+            "call 5f",
+            "5: pop {rip}",
+            rip = out(reg) rip,
+            options(nostack),
+        );
+    }
+    log::info!("rip = {:#x}", rip)
+}
+
 fn svsm_init() {
     // If required, the GDB stub can be started earlier, just after the console
     // is initialised in svsm_start() above.
@@ -334,6 +350,8 @@ fn svsm_init() {
     SVSM_PLATFORM
         .env_setup_svsm()
         .expect("SVSM platform environment setup failed");
+
+    print_rip();
 
     hyperv_setup().expect("failed to complete Hyper-V setup");
 

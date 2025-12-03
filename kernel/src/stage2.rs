@@ -409,6 +409,13 @@ fn load_kernel_elf(
     assert!(vaddr_alloc_base < upper_bound.try_into().unwrap());
     assert!(vaddr_alloc_base >= SVSM_GLOBAL_BASE.as_usize().try_into().unwrap());
 
+    log::info!("SVSM memory region len: {:#x}", kernel_region_len);
+    log::info!("kaslr lower_bound: {:#x}", SVSM_GLOBAL_BASE);
+    log::info!("kaslr upper_bound: {:#x}", upper_bound);
+    log::info!("kaslr offset range_size: {:#x}", kaslr_max_size);
+    log::info!("kaslr_offset: {:#x}", kaslr_offset);
+    log::info!("vadr_alloc_base: {:#x}", vaddr_alloc_base);
+
     // Map, validate and populate the SVSM kernel ELF's PT_LOAD segments. The
     // segments' virtual address range might not necessarily be contiguous,
     // track their total extent along the way. Physical memory is successively
