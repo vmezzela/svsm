@@ -341,6 +341,22 @@ unsafe fn load_elf_segment(
     Ok(segment_region)
 }
 
+/// Adjust the virtual region so that its end address becomes 2 MiB-aligned relative to the
+/// physical region's end address.
+fn advance_memory_region_for_2m_alignment(
+    memory_vregion: &mut MemoryRegion<VirtAddr>,
+    memory_pregion: MemoryRegion<PhysAddr>,
+) {
+    let v_end = memory_vregion.end().as_usize();
+    let p_end: usize = memory_pregion.end().into();
+
+    // Amount needed to make (v_end + offset) = p_end (mod PAGE_SIZE_2M)
+    let diff = v_end.wrapping_sub(p_end);
+    let offset = diff.wrapping_neg() & (PAGE_SIZE_2M - 1);
+
+    *memory_vregion = memory_vregion.expand(offset);
+}
+
 /// Loads the kernel ELF and returns the virtual memory region where it
 /// resides, as well as its entry point. Updates the used physical memory
 /// region accordingly.
@@ -533,7 +549,7 @@ pub extern "C" fn stage2_main(launch_info: &Stage2LaunchInfo) -> ! {
     let mut loaded_kernel_pregion = MemoryRegion::new(kernel_region.start(), 0);
 
     // Load first the kernel ELF and update the loaded physical region
-    let (kernel_entry, loaded_kernel_vregion) = load_kernel_elf(
+    let (kernel_entry, mut loaded_kernel_vregion) = load_kernel_elf(
         launch_info,
         &mut loaded_kernel_pregion,
         platform,
@@ -542,6 +558,10 @@ pub extern "C" fn stage2_main(launch_info: &Stage2LaunchInfo) -> ! {
     )
     .expect("Failed to load kernel ELF");
 
+    // Realign the loaded_kernel_vregion.end before creating the pages for the heap. Virtual
+    // addresses consumed here must be taken into account when computing the upper_bound for the
+    // kaslr.
+    advance_memory_region_for_2m_alignment(&mut loaded_kernel_vregion, loaded_kernel_pregion);
     // Create the page heap used in the kernel region.
     let mut kernel_heap = prepare_heap(
         kernel_region,
